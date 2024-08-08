@@ -21,7 +21,9 @@ ENT.Ticks = 0
 ENT.ArcCW_Killable = false
 
 function ENT:Initialize()
-    if SERVER then
+    if CLIENT then return end
+
+    timer.Simple(0, function()
         self:SetModel( self.Model )
         self:SetMoveType( MOVETYPE_VPHYSICS )
         self:SetSolid( SOLID_VPHYSICS )
@@ -40,7 +42,7 @@ function ENT:Initialize()
         self:Detonate()
 
         self.FireTime = math.Rand(self.FireTime - 1, self.FireTime + 1)
-    end
+    end)
 end
 
 local fired = {

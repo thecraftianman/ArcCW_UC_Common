@@ -155,10 +155,11 @@ function ENT:Think()
         end
 
         local dmg = DamageInfo()
+        local owner = self:GetOwner()
         dmg:SetDamageType(DMG_BURN)
         dmg:SetDamage(math.random() * 2 + 1)
         dmg:SetInflictor(self)
-        dmg:SetAttacker(self:GetOwner())
+        dmg:SetAttacker(IsValid(owner) and owner or game.GetWorld())
 
         if self:WaterLevel() > 2 then
             if math.random() <= 0.075 then self:Remove() return end
