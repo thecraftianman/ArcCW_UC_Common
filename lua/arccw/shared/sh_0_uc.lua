@@ -235,16 +235,15 @@ function ArcCW.UC.CalConv(from, to, stat)
 end
 
 ArcCW.UC.ADSReload = function(wep)
-    if IsValid(wep) and wep.ArcCW then
-        local vm = wep:GetOwner():GetViewModel()
+    local vm = wep:GetOwner():GetViewModel()
 
-        local delta = 1-wep:GetSightDelta()
+    local delta = 1 - wep:GetSightDelta()
 
-        local bipoded = wep:GetInBipod()
-        wep.ADSBipodAnims = math.Approach(wep.ADSBipodAnims or 0, bipoded and 1 or 0, FrameTime() / 0.5)
+    local bipoded = wep:GetInBipod()
+    local bipodanims = math.Approach(wep.ADSBipodAnims or 0, bipoded and 1 or 0, FrameTime() / 0.5)
 
-        vm:SetPoseParameter("sights", Lerp( math.ease.InOutCubic(math.max(delta, wep.ADSBipodAnims)), 0, 1)) -- thanks fesiug
-    end
+    vm:SetPoseParameter("sights", Lerp(math.ease.InOutCubic(math.max(delta, bipodanims)), 0, 1)) -- thanks fesiug
+    wep.ADSBipodAnims = bipodanims
 end
 
 -- right forward up
@@ -367,10 +366,14 @@ local choice = {
     [4] = traces4,
 }
 
-if game.SinglePlayer() and SERVER then
+local singleplayer = game.SinglePlayer()
+local developer = GetConVar("developer")
+local disttrace = CreateClientConVar("arccw_uc_disttrace", 0, true, false, "Mode for traces", 0, 4)
+
+if singleplayer and SERVER then
     util.AddNetworkString("ArcCW_UC_InnyOuty")
-elseif game.SinglePlayer() and CLIENT then
-    net.Receive("ArcCW_UC_InnyOuty", function(len, ply)
+elseif singleplayer and CLIENT then
+    net.Receive("ArcCW_UC_InnyOuty", function()
         local ent = net.ReadEntity()
         if IsValid(ent) then
             ArcCW.UC.InnyOuty(ent)
@@ -384,101 +387,109 @@ ArcCW.UC.InnyOuty = function(wep)
     local dist = wep:GetBuff_Hook("Hook_GetDistantShootSound")
     if dist == false then return end
 
-    if game.SinglePlayer() and SERVER then
+    if singleplayer and SERVER then
         net.Start("ArcCW_UC_InnyOuty")
         net.WriteEntity(wep)
         net.Send(Entity(1))
-    elseif CLIENT and (wep:GetOwner() == LocalPlayer() or game.SinglePlayer()) then
-        if wep.DistantShootSoundOutdoors and wep.DistantShootSoundIndoors then
-            local dso = wep.DistantShootSoundOutdoors
-            local dsi = wep.DistantShootSoundIndoors
-            local dsov = wep.DistantShootSoundOutdoorsVolume
-            local dsiv = wep.DistantShootSoundIndoorsVolume
+    end
 
-            if wep:GetBuff_Override("Silencer") then
-                if wep:GetBuff("PhysBulletMuzzleVelocity") < ArcCW.UC.SubsonicThreshold then--if wep:CheckFlags(nil, {"powder_subsonic"}) or wep:CheckFlags(nil, {"cal_subsonic"}) then
-                    return -- no tail
-                else
-                    dso = wep.DistantShootSoundOutdoorsSilenced
-                    dsi = wep.DistantShootSoundIndoorsSilenced
-                end
-            end
+    if SERVER then return end
 
-            dso = wep:GetBuff_Hook("Hook_GetDistantShootSoundOutdoors", dso)
-            dsi = wep:GetBuff_Hook("Hook_GetDistantShootSoundIndoors", dsi)
-            local vol = 0
-            local wo = wep:GetOwner()
-            if !IsValid(wo) then return end
-            local wop = wo:EyePos()
-            local woa = Angle(0, wo:EyeAngles().y, 0)
-            local t_influ = 0
-            local option = GetConVar("arccw_uc_disttrace"):GetInt()
-            local fps = 1 / RealFrameTime()
+    local wo = wep:GetOwner()
+    local ply = LocalPlayer()
 
-            if wep:GetOwner() ~= LocalPlayer() then
-                option = choice[1]
-            elseif option > 0 then
-                option = choice[option]
-            else
-                if fps > 100 then
-                    option = 4
-                elseif fps > 40 then
-                    option = 3
-                else
-                    option = 2
-                end
+    if !IsValid(wo) then return end
+    if wo ~= ply and !singleplayer then return end
 
-                if GetConVar("developer"):GetInt() > 1 then
-                    print("perf" .. option)
-                end
+    local dso = wep.DistantShootSoundOutdoors
+    local dsi = wep.DistantShootSoundIndoors
 
-                option = choice[option]
-            end
+    if !dso or !dsi then return end
 
-            for _, tin in ipairs(option) do
-                tracebase.start = wop
-                offset = Vector()
-                --if !tin.AngleUp then--_ != 1 then
-                offset = offset + (tin.Distance.x * woa:Right())
-                offset = offset + (tin.Distance.y * woa:Forward())
-                offset = offset + (tin.Distance.z * woa:Up())
-                --end
-                tracebase.endpos = wop + offset
-                tracebase.filter = wo
-                t_influ = t_influ + (tin.Influence or 1)
-                local result = util.TraceLine(tracebase)
-                if GetConVar("developer"):GetInt() > 2 then
-                    debugoverlay.Line(wop - (vector_up * 4), result.HitPos - (vector_up * 4), 1, Color((_ / 4) * 255, 0, (1 - (_ / 4)) * 255))
-                    debugoverlay.Text(result.HitPos - (vector_up * 4), math.Round((result.HitSky and 1 or result.Fraction) * 100) .. "%", 1)
-                end
-                vol = vol + (result.HitSky and 1 or result.Fraction) * tin.Influence
-            end
+    local dsov = wep.DistantShootSoundOutdoorsVolume
+    local dsiv = wep.DistantShootSoundIndoorsVolume
 
-            vol = vol / t_influ
+    if wep:GetBuff_Override("Silencer") then
+        if wep:GetBuff("PhysBulletMuzzleVelocity") < ArcCW.UC.SubsonicThreshold then --if wep:CheckFlags(nil, {"powder_subsonic"}) or wep:CheckFlags(nil, {"cal_subsonic"}) then
+            return -- no tail
+        else
+            dso = wep.DistantShootSoundOutdoorsSilenced
+            dsi = wep.DistantShootSoundIndoorsSilenced
+        end
+    end
 
-            if GetConVar("developer"):GetInt() > 1 then
-                print(vol)
-            end
+    dso = wep:GetBuff_Hook("Hook_GetDistantShootSoundOutdoors", dso)
+    dsi = wep:GetBuff_Hook("Hook_GetDistantShootSoundIndoors", dsi)
+    local vol = 0
+    local wop = wo:EyePos()
+    local woa = Angle(0, wo:EyeAngles().y, 0)
+    local t_influ = 0
+    local option = disttrace:GetInt()
+    local fps = 1 / RealFrameTime()
+    local devoption = developer:GetInt()
 
-            if dso then
-                for _, snd in ipairs(dso) do
-                    wep:StopSound(snd)
-                end
+    if wo ~= ply then
+        option = choice[1]
+    elseif option > 0 then
+        option = choice[option]
+    else
+        if fps > 100 then
+            option = 4
+        elseif fps > 40 then
+            option = 3
+        else
+            option = 2
+        end
 
-                if math.max(0.15, vol) ~= 0.15 then
-                    wep:EmitSound(dso[math.random(1, #dso)], 75, 100, vol * dsov or 1, CHAN_VOICE2)
-                end
-            end
+        if devoption > 1 then
+            print("perf" .. option)
+        end
 
-            if dsi then
-                for _, snd in ipairs(dsi) do
-                    wep:StopSound(snd)
-                end
+        option = choice[option]
+    end
 
-                if math.min(0.85, vol) ~= 0.85 then
-                    wep:EmitSound(dsi[math.random(1, #dsi)], 75, 100, (1 - vol) * dsiv or 1, CHAN_STREAM)
-                end
-            end
+    for _, tin in ipairs(option) do
+        tracebase.start = wop
+        local offset = Vector()
+        --if !tin.AngleUp then--_ != 1 then
+        offset = offset + (tin.Distance.x * woa:Right())
+        offset = offset + (tin.Distance.y * woa:Forward())
+        offset = offset + (tin.Distance.z * woa:Up())
+        --end
+        tracebase.endpos = wop + offset
+        tracebase.filter = wo
+        t_influ = t_influ + (tin.Influence or 1)
+        local result = util.TraceLine(tracebase)
+        if devoption > 2 then
+            debugoverlay.Line(wop - (vector_up * 4), result.HitPos - (vector_up * 4), 1, Color((_ / 4) * 255, 0, (1 - (_ / 4)) * 255))
+            debugoverlay.Text(result.HitPos - (vector_up * 4), math.Round((result.HitSky and 1 or result.Fraction) * 100) .. "%", 1)
+        end
+        vol = vol + (result.HitSky and 1 or result.Fraction) * tin.Influence
+    end
+
+    vol = vol / t_influ
+
+    if devoption > 1 then
+        print(vol)
+    end
+
+    if dso then
+        for _, snd in ipairs(dso) do
+            wep:StopSound(snd)
+        end
+
+        if math.max(0.15, vol) ~= 0.15 then
+            wep:EmitSound(dso[math.random(1, #dso)], 75, 100, vol * dsov or 1, CHAN_VOICE2)
+        end
+    end
+
+    if dsi then
+        for _, snd in ipairs(dsi) do
+            wep:StopSound(snd)
+        end
+
+        if math.min(0.85, vol) ~= 0.85 then
+            wep:EmitSound(dsi[math.random(1, #dsi)], 75, 100, (1 - vol) * dsiv or 1, CHAN_STREAM)
         end
     end
 end
@@ -486,7 +497,6 @@ end
 ArcCW.UC.CustColorUpdateInterval = 5
 
 if CLIENT then
-    CreateClientConVar("arccw_uc_disttrace", 0, true, false, "Mode for traces", 0, 4)
     CreateClientConVar("arccw_uc_custcolor_enable", 255, true, true, "1 for custom colors, 0 for playermodel color", 0, 1)
     CreateClientConVar("arccw_uc_custcolor_1_r", 255, true, true, "Main color R", 0, 255)
     CreateClientConVar("arccw_uc_custcolor_1_g", 255, true, true, "Main color G", 0, 255)
@@ -495,12 +505,10 @@ if CLIENT then
     CreateClientConVar("arccw_uc_custcolor_2_g", 255, true, true, "Second color G", 0, 255)
     CreateClientConVar("arccw_uc_custcolor_2_b", 255, true, true, "Second color B", 0, 255)
 
-    -- CreateClientConVar("arccw_uc_menu", 1, true, false, "Cool menu!", 0, 1)
-
     -- These convars are already known serverside; this only serves to tell the server it's time to update our colors to other clients.
-    if not game.SinglePlayer() then
+    if !singleplayer then
         local t = "ArcCW_UC_UpdateColor"
-        local custcolorcallback = function(cvar, old, new)
+        local custcolorcallback = function()
             if timer.Exists(t) then
                 timer.Adjust(t, ArcCW.UC.CustColorUpdateInterval)
             else
@@ -521,7 +529,7 @@ if CLIENT then
 
     matproxy.Add({
         name = "UC_ShellColor",
-        init = function(self, mat, values)
+        init = function(self)
             --self.envMin = values.min
             --self.envMax = values.max
             self.col = Vector()
@@ -564,7 +572,7 @@ if CLIENT then
     local function proxystuff(digit)
         return {
             name = "UC_Weapon_Color" .. digit,
-            init = function(self, mat, values)
+            init = function(self, _, values)
                 self.ResultTo = values.resultvar
             end,
             bind = function(self, mat, ent)
@@ -624,13 +632,13 @@ if CLIENT then
             command = "arccw_uc_custcolor_enable"
         })
         panel:ControlHelp("will use playermodel color if off")
-    
+
         panel:AddControl("checkbox", {
             label = "Infinite Underbarrel Ammo",
             command = "arccw_uc_infiniteubwammo"
         })
         panel:ControlHelp("Infinite ammo for Urban Coalition underbarrel weapons.")
-    
+
         panel:AddControl("slider", {
             label = "AP Damage Mult",
             command = "arccw_uc_apobjmult",
@@ -687,7 +695,7 @@ elseif SERVER then
 
     util.AddNetworkString("ArcCW_UC_CustColor")
 
-    net.Receive("ArcCW_UC_CustColor", function(len, ply)
+    net.Receive("ArcCW_UC_CustColor", function(_, ply)
         if (ply.UC_LastColorUpdate or 0) + ArcCW.UC.CustColorUpdateInterval > CurTime() then return end
         ply.UC_LastColorUpdate = CurTime()
         net.Start("ArcCW_UC_CustColor")
@@ -742,8 +750,7 @@ hook.Add("ArcCW_InitBulletProfiles", "UrbanCoalition", function()
         sprite_head = false,
         sprite_tail = false,
 
-        DrawBullet = function(bulinfo, bullet)
-
+        DrawBullet = function(_, bullet)
             if CurTime() - bullet.StartTime <= 0.05 then return end
             local a = bullet.PosStart and Lerp((bullet.PosStart - bullet.Pos):LengthSqr() / 40000, 0, 1) or 0
             if a == 0 then return end
@@ -753,7 +760,7 @@ hook.Add("ArcCW_InitBulletProfiles", "UrbanCoalition", function()
             bullet.LastTick = CurTime()
 
             local emitter = ParticleEmitter(bullet.Pos)
-            if not IsValid(emitter) then return end
+            if !IsValid(emitter) then return end
 
             local vec = bullet.Vel * engine.TickInterval()
             local count = math.ceil(vec:Length() / 12)
@@ -783,17 +790,17 @@ hook.Add("ArcCW_InitBulletProfiles", "UrbanCoalition", function()
             bullet.RenderTick = (bullet.RenderTick or 0) + 1
         end,
 
-        PhysBulletHit = function(bulinfo, bullet, tr)
-            if not CLIENT then return end
+        PhysBulletHit = function(_, bullet, tr)
+            if !CLIENT then return end
 
             local emitter = ParticleEmitter(bullet.Pos)
-            if not IsValid(emitter) then return end
+            if !IsValid(emitter) then return end
 
             local dir = bullet.Vel:GetNormalized()
             local reflect = dir:Dot(tr.HitNormal) * 2 * tr.HitNormal  - dir
             local vec = (reflect + VectorRand() * 0.1):GetNormalized()
 
-            for i = 1, math.random(16, 32) do
+            for _ = 1, math.random(16, 32) do
                 local ember = emitter:Add("effects/spark", tr.HitPos + VectorRand() * 4)
                 ember:SetVelocity(VectorRand() * 100 - vec * math.Rand(100, 500) + Vector(0, 0, math.Rand(75, 150)))
                 ember:SetGravity(Vector(0, 0, -600))
@@ -834,6 +841,53 @@ local paths = {
     "sound/uc/",
 }
 
+local cooltable = {}
+local UC_Precache, UC_PrecachePer, UC_PrecachePeh, UC_PrecacheCur
+
+local function recurse(path, dir)
+    local files, directories = file.Find(path .. (dir and (dir .. "/") or "") .. "*", "GAME")
+
+    for _, fie in ipairs(files) do
+        local fiex = string.GetExtensionFromFilename(fie)
+        if fiex == "ogg" or fiex == "wav" or fiex == "mp3" or fiex == "mdl" then
+            table.insert(cooltable, path .. (dir and (dir .. "/") or "") .. fie)
+        end
+    end
+
+    for _, innerdir in ipairs(directories) do
+        recurse(path, innerdir)
+    end
+end
+
+local function precache(procedure, interval)
+    cooltable = {}
+    UC_Precache = true
+    UC_PrecachePer = 0
+    UC_PrecachePeh = 0
+    UC_PrecacheCur = "..."
+
+    for _, path in ipairs(paths) do
+        recurse(path)
+    end
+
+    for i, fie in ipairs(cooltable) do
+        timer.Simple(i / interval, function()
+            UC_PrecachePer = i
+            UC_PrecachePeh = #cooltable
+            UC_PrecacheCur = fie
+            local fiex = string.GetExtensionFromFilename(fie)
+            if fiex == "ogg" or fiex == "wav" or fiex == "mp3" then
+                procedure["sound"](fie)
+            elseif fiex == "mdl" then
+                procedure["model"](fie)
+            elseif fiex ~= "phy" and fiex ~= "vvd" and fiex ~= "vtx" then -- ignore these
+                print("Unknown what to do with " .. fie .. "!")
+            end
+            if i == #cooltable then UC_Precache = false end
+        end)
+    end
+end
+
 if CLIENT then
     local procedure = {
         ["sound"] = function(asset)
@@ -851,52 +905,8 @@ if CLIENT then
         end,
     }
 
-    local cooltable = {}
-    function fukc()
-        local function recurse( path, dir )
-            local files, directories = file.Find( path .. (dir and (dir .. "/") or "") .. "*", "GAME" )
-            for i, fie in ipairs(files) do
-                local fiex = string.GetExtensionFromFilename(fie)
-                if fiex == "ogg" or fiex == "wav" or fiex == "mp3" or fiex == "mdl" then
-                    table.insert( cooltable, path .. (dir and (dir .. "/") or "") .. fie )
-                end
-            end
-            for i, dir in ipairs(directories) do
-                recurse( path, dir )
-            end
-        end
-
-        cooltable = {}
-
-        UC_Precache = true
-        UC_PrecachePer = 0
-        UC_PrecachePeh = 0
-        UC_PrecacheCur = "..."
-        for i, path in ipairs(paths) do
-            recurse( path )
-        end
-
-        -- PrintTable(cooltable)
-
-        for i, fie in ipairs(cooltable) do
-            timer.Simple(i / GetConVar("arccw_uc_cache_client_persecond"):GetFloat(), function()
-                UC_PrecachePer = i
-                UC_PrecachePeh = #cooltable
-                UC_PrecacheCur = fie
-                local fiex = string.GetExtensionFromFilename(fie)
-                if fiex == "ogg" or fiex == "wav" or fiex == "mp3" then
-                    procedure["sound"](fie)
-                elseif fiex == "mdl" then
-                    procedure["model"](fie)
-                elseif fiex == "phy" or fiex == "vvd" or fiex == "vtx" then
-                    -- ignore these
-                else
-                    print("Unknown what to do with " .. fie .. "!")
-                end
-                if i == #cooltable then UC_Precache = false end
-            end)
-        end
-    end
+    local cachecvar = CreateClientConVar("arccw_uc_cache_client_persecond", 60, true, false)
+    local hudsize = GetConVar("arccw_hud_size")
 
     hook.Add("HUDPaint", "UC_Precache", function()
         if UC_Precache then
@@ -905,7 +915,7 @@ if CLIENT then
             local i_per = i_1 / i_2
             local i_cur = UC_PrecacheCur or "..."
             surface.SetDrawColor(255, 255, 255, 255)
-            local ss = ScreenScale(1) * GetConVar("arccw_hud_size"):GetFloat()
+            local ss = ScreenScale(1) * hudsize:GetFloat()
             local bx, by = (ss * 150), (ss * 10)
 
             -- Bar
@@ -913,21 +923,21 @@ if CLIENT then
             surface.DrawRect( ( ScrW() / 2 ) - ( bx / 2 ), ( ScrH() * 0.7 ) - ( by / 2 ), bx * i_per, by )
 
             -- Top left
-            draw.SimpleText( "CACHING:", "ArcCW_12", ( ScrW() / 2 ) - ( bx / 2 ), ( ScrH() * 0.7 ) - ( by / 2 ) - (ss*1), color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM )
+            draw.SimpleText( "CACHING:", "ArcCW_12", ( ScrW() / 2 ) - ( bx / 2 ), ( ScrH() * 0.7 ) - ( by / 2 ) - ss, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM )
 
             -- Bottom right
-            draw.SimpleText( math.Round(i_per * 100) .. "%", "ArcCW_12", ( ScrW() / 2 ) + ( bx / 2 ), ( ScrH() * 0.7 ) + ( by / 2 ) - (ss*1), color_white, TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP )
+            draw.SimpleText( math.Round(i_per * 100) .. "%", "ArcCW_12", ( ScrW() / 2 ) + ( bx / 2 ), ( ScrH() * 0.7 ) + ( by / 2 ) - ss, color_white, TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP )
 
             -- Top right
-            draw.SimpleText( i_1 .. "/" .. i_2, "ArcCW_8", ( ScrW() / 2 ) + ( bx / 2 ), ( ScrH() * 0.7 ) - ( by / 2 ) - (ss*1), color_white, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM )
+            draw.SimpleText( i_1 .. "/" .. i_2, "ArcCW_8", ( ScrW() / 2 ) + ( bx / 2 ), ( ScrH() * 0.7 ) - ( by / 2 ) - ss, color_white, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM )
 
             -- Bottom left
-            draw.SimpleText( i_cur, "ArcCW_6", ( ScrW() / 2 ) - ( bx / 2 ), ( ScrH() * 0.7 ) + ( by / 2 ) + (ss*1), color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP )
+            draw.SimpleText( i_cur, "ArcCW_6", ( ScrW() / 2 ) - ( bx / 2 ), ( ScrH() * 0.7 ) + ( by / 2 ) + ss, color_white, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP )
         end
     end)
-    CreateClientConVar("arccw_uc_cache_client_persecond", 60, true, false)
-    concommand.Add( "arccw_uc_cache_client", function()
-        fukc()
+
+    concommand.Add("arccw_uc_cache_client", function()
+        precache(procedure, cachecvar:GetFloat())
     end)
 end
 
@@ -942,63 +952,14 @@ if SERVER then
         end,
         ["model"] = function(asset)
             local cmdl = ents.Create( "prop_dynamic" )
-            -- print(cmdl)
             cmdl:SetModel(asset)
             cmdl:Spawn()
             cmdl:Remove()
         end,
     }
-    local cooltable = {}
-    function fukc_server()
-        local function recurse( path, dir )
-            local files, directories = file.Find( path .. (dir and (dir .. "/") or "") .. "*", "GAME" )
-            for i, fie in ipairs(files) do
-                local fiex = string.GetExtensionFromFilename(fie)
-                if fiex == "ogg" or fiex == "wav" or fiex == "mp3" or fiex == "mdl" then
-                    table.insert( cooltable, path .. (dir and (dir .. "/") or "") .. fie )
-                end
-            end
-            for i, dir in ipairs(directories) do
-                recurse( path, dir )
-            end
-        end
 
-        cooltable = {}
-
-        UC_Precache = true
-        UC_PrecachePer = 0
-        UC_PrecachePeh = 0
-        UC_PrecacheCur = "..."
-        for i, path in ipairs(paths) do
-            recurse( path )
-        end
-
-        -- PrintTable(cooltable)
-
-        for i, fie in ipairs(cooltable) do
-            timer.Simple(i / (1 / 20), function()
-                -- print(fie)
-                UC_PrecachePer = i
-                UC_PrecachePeh = #cooltable
-                UC_PrecacheCur = fie
-                local fiex = string.GetExtensionFromFilename(fie)
-                if fiex == "ogg" or fiex == "wav" or fiex == "mp3" then
-                    procedure["sound"](fie)
-                elseif fiex == "mdl" then
-                    procedure["model"](fie)
-                elseif fiex == "phy" or fiex == "vvd" or fiex == "vtx" then
-                    -- ignore these
-                else
-                    print("Unknown what to do with " .. fie .. "!")
-                end
-                if i == #cooltable then UC_Precache = false end
-            end)
-        end
-    end
-
-    concommand.Add( "arccw_uc_cache_server", function()
-        print("hi")
-        fukc_server()
+    concommand.Add("arccw_uc_cache_server", function()
+        precache(procedure, 1 / 20)
     end, nil, "command server to cache")
 end
 

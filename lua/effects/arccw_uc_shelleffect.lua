@@ -13,26 +13,29 @@ EFFECT.SpawnTime = 0
 
 EFFECT.UC_ShellColor = color_white
 
-function EFFECT:Init(data)
+local shelleffects = GetConVar("arccw_shelleffects")
+local shelltime = GetConVar("arccw_shelltime")
 
+function EFFECT:Init(data)
+    local ply = LocalPlayer()
     local att = data:GetAttachment()
     local ent = data:GetEntity()
     local mag = data:GetMagnitude()
 
-    local mdl = LocalPlayer():GetViewModel()
+    local mdl = ply:GetViewModel()
 
-    if LocalPlayer():ShouldDrawLocalPlayer() then
+    if ply:ShouldDrawLocalPlayer() then
         mdl = ent.WMModel or ent
     end
 
     if !IsValid(ent) then self:Remove() return end
 
     local owner = ent:GetOwner()
-    if owner != LocalPlayer() then
+    if owner != ply then
         mdl = ent.WMModel or ent
     end
 
-    if owner != LocalPlayer() and !GetConVar("arccw_shelleffects"):GetBool() then self:Remove() return end
+    if owner != ply and !shelleffects:GetBool() then self:Remove() return end
     if !IsValid(mdl) then self:Remove() return end
     if !mdl:GetAttachment(att) then self:Remove() return end
 
@@ -46,7 +49,7 @@ function EFFECT:Init(data)
 
     local dir = ang:Up()
 
-    local st = GetConVar("arccw_shelltime"):GetFloat()
+    local st = shelltime:GetFloat()
 
     if ent then
         self.Model = ent:GetBuff_Override("Override_ShellModel") or ent.ShellModel
@@ -147,18 +150,28 @@ function EFFECT:PhysicsCollide()
 end
 
 function EFFECT:Think()
-    if (self.SpawnTime + self.ShellTime) <= CurTime() then
+    local spawntime = self.SpawnTime
+    local shelllife = self.ShellTime
+    local curtime = CurTime()
+
+    if (spawntime + shelllife) <= curtime then
         if !IsValid(self) then return end
+
         self:SetRenderFX( kRenderFxFadeFast )
-        if (self.SpawnTime + self.ShellTime + 1) <= CurTime() then
-            if !IsValid(self:GetPhysicsObject()) then return end
-            self:GetPhysicsObject():EnableMotion(false)
-            if (self.SpawnTime + self.ShellTime + 1.5) <= CurTime() then
+
+        if (spawntime + shelllife + 1) <= curtime then
+            local physobj = self:GetPhysicsObject()
+            if !IsValid(physobj) then return end
+
+            physobj:EnableMotion(false)
+
+            if (spawntime + shelllife + 1.5) <= curtime then
                 self:Remove()
                 return
             end
         end
     end
+
     return true
 end
 
