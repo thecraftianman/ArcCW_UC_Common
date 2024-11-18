@@ -147,10 +147,11 @@ function ENT:Think()
         if self:WaterLevel() > 2 then self:Remove() return end
 
         local dmg = DamageInfo()
+        local owner = self:GetOwner()
         dmg:SetDamageType(DMG_BURN)
         dmg:SetDamage(math.Round(math.random() * 2 + 3))
         dmg:SetInflictor(self)
-        dmg:SetAttacker(self:GetOwner())
+        dmg:SetAttacker(IsValid(owner) and owner or game.GetWorld())
         util.BlastDamageInfo(dmg, self:GetPos(), 200)
 
         self.NextDamageTick = CurTime() + 0.15
